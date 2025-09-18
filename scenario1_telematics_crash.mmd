@@ -1,0 +1,39 @@
+sequenceDiagram
+    title 场景1：Telematics Crash后重启的序列号处理
+    
+    participant Phone as Phone进程
+    participant Telematics as Telematics进程
+    
+    Note over Phone: 正常运行中<br/>当前sequence=45
+    Note over Telematics: 正常运行中<br/>lastSequence=44
+    
+    Phone->>Telematics: onNetworkStateChanged(apn=1, state=1, phone=0, seq=45)
+    Note over Telematics: 接受消息<br/>lastSequence=45
+    
+    Phone->>Telematics: onNetworkStateChanged(apn=2, state=0, phone=0, seq=46)
+    Note over Telematics: 接受消息<br/>lastSequence=46
+    
+    Note over Telematics: ❌ Crash!
+    Note over Phone: 继续运行<br/>sequence继续累加
+    
+    Note over Telematics: ✅ 重启完成<br/>lastSequence=-1<br/>(未初始化状态)
+    
+    Telematics->>Phone: registerListener(callback)
+    Note over Phone: 检测到新listener注册<br/>当前sequence=52
+    
+    rect rgb(200, 230, 200)
+        Note over Phone,Telematics: Phone推送所有APN当前状态
+        Phone->>Telematics: onNetworkStateChanged(apn=1, state=1, phone=0, seq=52)
+        Note over Telematics: lastSequence=-1<br/>无条件接受第一个消息<br/>更新lastSequence=52
+        
+        Phone->>Telematics: onNetworkStateChanged(apn=2, state=0, phone=0, seq=53)
+        Note over Telematics: 正常环形比较<br/>(53-52+100)%100=1<br/>接受，lastSequence=53
+        
+        Phone->>Telematics: onNetworkStateChanged(apn=3, state=1, phone=0, seq=54)
+        Note over Telematics: 正常环形比较<br/>(54-53+100)%100=1<br/>接受，lastSequence=54
+        
+        Phone->>Telematics: onNetworkStateChanged(apn=1, state=1, phone=1, seq=55)
+        Note over Telematics: 继续正常处理...
+    end
+    
+    Note over Phone,Telematics: 恢复正常运行状态

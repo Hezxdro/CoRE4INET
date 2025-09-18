@@ -1,0 +1,50 @@
+sequenceDiagram
+    title 场景2：Phone Crash后重启的序列号处理
+    
+    participant Phone as Phone进程
+    participant Telematics as Telematics进程
+    participant System as 系统广播
+    
+    Note over Phone: 正常运行中<br/>当前sequence=88
+    Note over Telematics: 正常运行中<br/>lastSequence=87
+    
+    Phone->>Telematics: onNetworkStateChanged(apn=1, state=1, phone=0, seq=88)
+    Note over Telematics: 接受消息<br/>lastSequence=88
+    
+    Phone->>Telematics: onNetworkStateChanged(apn=2, state=0, phone=0, seq=89)
+    Note over Telematics: 接受消息<br/>lastSequence=89
+    
+    Note over Phone: ❌ Crash!
+    Note over Telematics: 继续运行<br/>lastSequence=89
+    
+    Note over Phone: ✅ 重启完成<br/>sequence=0<br/>(重新开始)
+    
+    rect rgb(255, 220, 200)
+        Note over Phone,System: Phone发送重启广播
+        Phone->>System: sendBroadcast(ACTION_PHONE_RESTARTED)
+        System->>Telematics: onReceive(ACTION_PHONE_RESTARTED)
+        
+        Note over Telematics: 收到Phone重启广播<br/>重置lastSequence=-1
+    end
+    
+    Telematics->>Phone: unregisterListener(旧callback)
+    Note over Telematics: 清理旧连接
+    
+    Telematics->>Phone: registerListener(新callback)
+    Note over Phone: 接受新listener注册
+    
+    rect rgb(200, 230, 200)
+        Note over Phone,Telematics: Phone推送所有APN当前状态（从seq=0开始）
+        Phone->>Telematics: onNetworkStateChanged(apn=1, state=1, phone=0, seq=0)
+        Note over Telematics: lastSequence=-1<br/>无条件接受第一个消息<br/>更新lastSequence=0
+        
+        Phone->>Telematics: onNetworkStateChanged(apn=2, state=0, phone=0, seq=1)
+        Note over Telematics: 正常环形比较<br/>(1-0+100)%100=1<br/>接受，lastSequence=1
+        
+        Phone->>Telematics: onNetworkStateChanged(apn=3, state=1, phone=0, seq=2)
+        Note over Telematics: 正常环形比较<br/>(2-1+100)%100=1<br/>接受，lastSequence=2
+        
+        Note over Phone,Telematics: 继续推送其他APN状态...
+    end
+    
+    Note over Phone,Telematics: 恢复正常运行状态<br/>Phone从0继续递增<br/>Telematics正常处理
