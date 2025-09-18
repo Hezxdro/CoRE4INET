@@ -1,95 +1,65 @@
-# CoRE4INET
+# Phone-Telematics 序列号处理方案
 
-CoRE4INET is an open source extension to the [INET-Framework](https://inet.omnetpp.org/) for the event-based simulation of real-time Ethernet in the [OMNEST/OMNeT++](https://omnetpp.org/) simulation system. It provides real-time Ethernet protocols like AS6802 and AVB. It was created by the [CoRE (Communication over Realtime Ethernet)](https://core-researchgroup.de/) research group at the [HAW-Hamburg (Hamburg University of Applied Sciences)](https://www.haw-hamburg.de/english.html).
+## 概述
+本方案用于解决Phone进程和Telematics进程之间通过Binder进行网络状态通信时的消息顺序问题。
 
-<img src="/doc/images/core4inet.png" alt="CoRE4INET Environment" width="35%">
+## 序列号机制
+- 使用0-99的环形序列号
+- 环形比较采用"半环原则"：
+  - diff = (new - last + 100) % 100
+  - diff > 0 && diff < 50：接受（更新的消息）
+  - diff == 0：丢弃（重复消息）
+  - diff >= 50：丢弃（旧消息）
 
+## Crash场景处理
 
-## News
-* Updated to support OMNeT++ 5.5.1 and INET 3.6.6 
-* Added IEEE 802.1Qci filtering and TSN nodes.
-* Added IEEE 802.1Qbv shaping. (Including scheduled gate control list and credit based shaper)
+### 场景1：Telematics Crash后重启
+**问题**：Telematics丢失last sequence记录，Phone端sequence继续累加
 
+**解决方案**：
+1. Telematics重启后将last sequence初始化为-1
+2. 收到的第一个消息无条件接受
+3. Phone检测到新listener注册，立即推送所有APN当前状态
 
-## Features
-* Best Efford Crosstraffic
-* IEEE 802.1Q / IEEE P802.1p VLANs and Priorities
-* Time-Sensitive Networking (TSN)
-* IEEE 802.1 Audio/Video Bridging (AVB)
-* TTEthernet (AS6802)
-* IP over Realtime-Ethernet
+**关键代码**：
+```java
+// Telematics端
+if (lastSequence == -1) {
+    lastSequence = sequence;
+    processNetworkStateChange(phoneId, apnNumber, state);
+    return true;
+}
+```
 
+### 场景2：Phone Crash后重启
+**问题**：Phone端sequence重置为0，Telematics端还记着旧的last sequence
 
-## History
-CoRE4INET was first introduced as TTE4INET at the [4th International Workshop on OMNeT++ (2011)](http://www.omnet-workshop.org/2011/) along with the [4th International ICST Conference on Simulation Tools and Techniques (2011)](http://www.simutools.org/2011/). You can find the [publication](http://core.informatik.haw-hamburg.de/images/publications/papers/sdkks-eifre-11a.pdf) and [slides](http://core.informatik.haw-hamburg.de/images/publications/papers/sdkks-eifre-11b.pdf) here.
+**解决方案**：
+1. Phone重启后发送特殊广播通知
+2. Telematics收到广播后重置last sequence为-1
+3. Phone等待Telematics重新注册后推送所有状态
 
-Since there were changes necessary to support OMNeT++ 4.2 and INET 2.0, it was completely redesigned. When more real-time Ethernet protocols were added the project was renamed from TTE4INET to CoRE4INET to show that it does not only contain time-triggered protocols.
+**关键代码**：
+```java
+// Phone端
+public void onPhoneProcessStart() {
+    currentSequence = 0;
+    sendPhoneRestartBroadcast();
+}
 
+// Telematics端
+private void handlePhoneRestart() {
+    sequenceHandler.reset(); // 重置为-1
+    connectToPhoneService();
+}
+```
 
-## References
-If you would like to reference this project please use the following [publication](http://core.informatik.haw-hamburg.de/images/publications/papers/sdkks-eifre-11a.pdf):
+## 优势
+1. **简单可靠**：逻辑清晰，易于实现和维护
+2. **状态同步**：crash后能快速恢复到正确状态
+3. **向后兼容**：不影响正常运行时的消息处理
 
-T. Steinbach, H. Dieumo Kenfack, F. Korf, and T. C. Schmidt. An Extension of the OMNeT++ INET Framework for Simulating Real-time Ethernet with High Accuracy. In Proceedings of the 4th International ICST Conference on Simulation Tools and Techniques, SIMUTools '11, pages 375-382, ICST, Brussels, Belgium, Belgium, 2011. ICST (Institute for Computer Sciences, Social-Informatics and Telecommunications Engineering).
-
-
-## Quick Start
-1. Download OMNeT++ 5.5.1
-    * [https://omnetpp.org/download/](https://omnetpp.org/download/)
-2. Install OMNeT++
-    * [https://doc.omnetpp.org/omnetpp/InstallGuide.pdf](https://doc.omnetpp.org/omnetpp/InstallGuide.pdf)
-3. Get INET framework 3.6.6
-    * [https://inet.omnetpp.org/Download.html](https://inet.omnetpp.org/Download.html)
-4. Install CoRE plugins (optional)
-    * OMNEST/OMNeT++ -> Help -> Install New Software...
-    * URL `http://sim.core-rg.de/updates/`
-    * Check [[Abstract Network Description Language](https://core-researchgroup.de/projects/simulation/abstract-network-description-language.html)] | [CoRE Simulation Model Installer] | [Gantt Chart Timing Analyzer]
-5. Get CoRE framework (GitHub or CoRE Simulation Model Installer)
-    * GitHub: Clone framework and import it in OMNEST/OMNeT++
-    * CoRE Simulation Model Installer: OMNEST/OMNeT++ -> Help -> Install CoRE Simulation Models...
-6. Working with the framework
-    * See the documentation in [doc/](/doc)
-    * Start the examples in the framework
-
-
-## Continuous Integration
-
-The build state of the master branch is monitored:
-* Building:
-<a><img src="https://jenkins.core-rg.de/buildStatus/icon?job=CoRE4INET/CoRE4INET"></a>
-* Tests:
-<a><img src="https://jenkins.core-rg.de/buildStatus/icon?job=CoRE4INET/CoRE4INET_tests"></a>
-
-<table>
-  <tr>
-    <th></th>
-    <th>Ubuntu 18.04</th>
-    <th>Windows 10</th>
-  </tr>
-  <tr>
-    <td>Building</td>
-    <td><img src="https://jenkins.core-rg.de/buildStatus/icon?job=CoRE4INET/CoRE4INET/Nodes=Ubuntu_18.04"></td>
-    <td><img src="https://jenkins.core-rg.de/buildStatus/icon?job=CoRE4INET/CoRE4INET/Nodes=Windows_10"></td>
-  </tr>
-  <tr>
-    <td>Tests</td>
-    <td><img src="https://jenkins.core-rg.de/buildStatus/icon?job=CoRE4INET/CoRE4INET_tests/Nodes=Ubuntu_18.04"></td>
-    <td><img src="https://jenkins.core-rg.de/buildStatus/icon?job=CoRE4INET/CoRE4INET_tests/Nodes=Windows_10"></td>
-  </tr>
-</table>
-
-
-## Further Information
-* [CoRE simulation models overview](https://core-researchgroup.de/projects/simulation.html)
-* [Abstract Network Description Language (ANDL) overview](https://core-researchgroup.de/projects/simulation/abstract-network-description-language.html)
-
-### Installation
-Please see [INSTALL](/INSTALL)
-
-### Documentation
-Please see [doc/](/doc)
-
-### Changelog
-Please see [WHATSNEW](/WHATSNEW)
-
-## IMPORTANT
-The CoRE4INET model is under continuous development: new parts are added, bugs are corrected, and so on. We cannot assert that the implementation will work fully according to the specifications. YOU ARE RESPONSIBLE YOURSELF TO MAKE SURE THAT THE MODELS YOU USE IN YOUR SIMULATIONS WORK CORRECTLY, AND YOU'RE GETTING VALID RESULTS. 
+## 注意事项
+1. Phone重启广播必须可靠送达
+2. Telematics需要持久化关键业务数据，不依赖sequence
+3. 建议在关键状态变化时增加日志，便于问题排查
